@@ -26,32 +26,32 @@ class AuthenticatedSessionController extends Controller
      */
     public function store(LoginRequest $request): RedirectResponse
     {
-        // Use the configured API base URL (config/services.php -> api.base_url)
-        // and make the request with the HTTP client. The project previously
-        // tried to call a non-existent `api()` macro on the Http client.
-        $response = Http::baseUrl(config('services.api.base_url'))->post('/login', [
-            'email' => $request->email,
-            'password' => $request->password,
-        ]);
-
-        if ($response->successful()) {
-            $responseBody = json_decode($response->body(), true);
-            $token = $responseBody['token'];
-            $user = $responseBody['user'];
-            session([
-                'api_token' => $token,
-                'user_name' => $user['name'],
-                'user_email'=> $user['email']
+            // Use the configured API base URL (config/services.php -> api.base_url)
+            // and make the request with the HTTP client. The project previously
+            // tried to call a non-existent `api()` macro on the Http client.
+            $response = Http::baseUrl(config('services.api.base_url'))->post('/login', [
+                'email' => $request->email,
+                'password' => $request->password,
             ]);
 
-            // Return with a flash value so the frontend can log the username
-            // to the browser console after a successful login.
-            return redirect()->intended('/counties')->with('user_name', $user['name'])->with('user_email', $user['email'])->with('just_logged_in_username', $user['name'])->with('api_token', $token);
-        }
+            if ($response->successful()) {
+                $responseBody = json_decode($response->body(), true);
+                $token = $responseBody['token'];
+                $user = $responseBody['user'];
+                session([
+                    'api_token' => $token,
+                    'user_name' => $user['name'],
+                    'user_email'=> $user['email']
+                ]);
 
-        return redirect()->intended('/login')->withErrors([
-            'email' => 'The provided credentials do not match our records.',
-        ]);
+                // Return with a flash value so the frontend can log the username
+                // to the browser console after a successful login.
+                return redirect()->intended('/counties')->with('user_name', $user['name'])->with('user_email', $user['email'])->with('just_logged_in_username', $user['name'])->with('api_token', $token);
+            }
+
+            return redirect()->intended('/login')->withErrors([
+                'email' => 'The provided credentials do not match our records.',
+            ]);
     }
 
     /**
@@ -59,7 +59,16 @@ class AuthenticatedSessionController extends Controller
      */
     public function destroy(Request $request): RedirectResponse
     {
-        session()->forget('api_token');
+        $token = session('api_token');
+        
+        if ($token) {
+            // Call the API logout endpoint to revoke the token
+            Http::baseUrl(config('services.api.base_url'))
+                ->withToken($token)
+                ->post('/logout');
+        }
+        
+        session()->forget(['api_token', 'user_name', 'user_email']);
 
         return redirect('/');
     }

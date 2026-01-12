@@ -1,36 +1,45 @@
 <meta name="csrf-token" content="{{ csrf_token() }}">
 
-<div>
-    <a>
-        {{ session('user_name') }}
-        <br>
-        {{ session('user_email') }}
-    </a>
+<div style="max-width: 1200px; margin: 0 auto; padding: 2rem;">
+    <div style="margin-bottom: 2rem;">
+        <h1 style="font-size: 2rem; font-weight: bold; margin-bottom: 0.5rem;">Counties</h1>
+        <p style="color: #666; margin: 0;">{{ session('user_name') }} ({{ session('user_email') }})</p>
+    </div>
 
-
-</div>
-
-<div class="counties-wrapper">
-    <p id="counties-loading">Loading counties…</p>
-    <p id="counties-error" style="color: #b91c1c; display: none;"></p>
-
-    <ul id="county-list" style="list-style: none; padding: 0; margin: .5rem 0;"></ul>
+    <div style="margin-bottom: 2rem;">
+        <h2 style="font-size: 1.5rem; font-weight: 600; margin-bottom: 1rem;">Select a county:</h2>
+        <p id="counties-loading" style="display: block;">Loading counties…</p>
+        <p id="counties-error" style="color: #b91c1c; display: none;"></p>
+        <ul id="county-list" style="list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 0.75rem;"></ul>
+    </div>
 </div>
 
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        const apiUrl = 'http://127.0.0.1:8000/api/counties';
-        const csrfToken = document.querySelector('meta[name="api-token"]')?.getAttribute('content');
-        const apiToken = '{{ session("api_token") }}';
+        const apiBaseUrl = @json(config('services.api.base_url'));
+        const apiBase = (apiBaseUrl || '').replace(/\/+$/, '');
+        const apiUrl = apiBase + '/counties';
+        const apiTokenFromSession = @json(session('api_token', ''));
+        const apiTokenFromStorage = (typeof localStorage !== 'undefined') ? (localStorage.getItem('api_token') || '') : '';
+        const apiToken = apiTokenFromSession || apiTokenFromStorage;
 
         const loadingEl = document.getElementById('counties-loading');
         const errorEl = document.getElementById('counties-error');
         const listEl = document.getElementById('county-list');
 
+        if (apiTokenFromSession && typeof localStorage !== 'undefined') {
+            try { localStorage.setItem('api_token', apiTokenFromSession); } catch (e) {}
+        }
+
         function showError(message) {
             loadingEl.style.display = 'none';
             errorEl.textContent = message;
             errorEl.style.display = '';
+        }
+
+        if (!apiToken) {
+            showError('Authentication token not found. Please log in again.');
+            return;
         }
 
         fetch(apiUrl, {
@@ -43,17 +52,10 @@
             credentials: 'same-origin'
         })
             .then(response => {
-                console.log('Response status:', response.status);
-                console.log('Response ok:', response.ok);
                 if (!response.ok) throw new Error('Network response was not ok: ' + response.status);
                 return response.json();
             })
             .then(data => {
-                console.log('Received data:', data);
-                console.log('Data type:', typeof data);
-                console.log('Is array:', Array.isArray(data));
-                console.log('Data length:', data?.length);
-                
                 loadingEl.style.display = 'none';
 
                 if (!Array.isArray(data) || data.length === 0) {
@@ -90,7 +92,6 @@
                 });
             })
             .catch(err => {
-                console.error('Error fetching counties:', err);
                 showError('Error fetching counties. See console for details.');
             });
     });

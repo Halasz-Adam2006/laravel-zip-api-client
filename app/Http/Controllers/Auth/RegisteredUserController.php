@@ -9,6 +9,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\Rules;
 use Illuminate\View\View;
 
@@ -29,21 +30,54 @@ class RegisteredUserController extends Controller
      */
     public function store(Request $request): RedirectResponse
     {
-        $request->validate([
+        $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:'.User::class],
             'password' => ['required', 'confirmed', Rules\Password::defaults()],
         ]);
 
-        $user = User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
+        // Register with the API
+        $response = Http::baseUrl(config('services.api.base_url'))->post('/register', [
+            'name' => $validated['name'],
+            'email' => $validated['email'],
+            'password' => $validated['password'],
         ]);
 
-        event(new Registered($user));
+        if (!$response->successful()) {
+            $errorBody = json_decode($response->body(), true);
+            $errorMsg = $errorBody['message'] ?? 'Registration failed. Please try again.';
+            return redirect()->back()->withErrors([
+                'email' => $errorMsg,
+            ]);
+        }
 
-        Auth::login($user);
+        $responseBody = json_decode($response->body(), true);
+        $token = $responseBody['token'] ?? null;
+        $user = $responseBody['user'] ?? null;
+
+        if (!$token || !$user) {
+            return redirect()->back()->withErrors([
+                'email' => 'Invalid API response. Token or user data missing.',
+            ]);
+        }
+
+        // Create local user record
+        $localUser = User::create([
+            'name' => $validated['name'],
+            'email' => $validated['email'],
+            'password' => Hash::make($validated['password']),
+        ]);
+
+        event(new Registered($localUser));
+
+        // Store API token in session for authenticated requests
+        session([
+            'api_token' => $token,
+            'user_name' => $localUser->name,
+            'user_email' => $localUser->email
+        ]);
+
+        Auth::login($localUser);
 
         return redirect(route('dashboard', absolute: false));
     }

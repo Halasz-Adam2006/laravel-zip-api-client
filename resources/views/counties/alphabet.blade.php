@@ -30,7 +30,23 @@
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         const countyName = '{{ $county->name }}';
-        const apiToken = '{{ session("api_token") }}';
+        const apiTokenFromSession = @json(session('api_token', ''));
+        const apiTokenFromStorage = (typeof localStorage !== 'undefined') ? (localStorage.getItem('api_token') || '') : '';
+        const apiToken = apiTokenFromSession || apiTokenFromStorage;
+        const apiBaseUrl = @json(config('services.api.base_url'));
+        const apiBase = (apiBaseUrl || '').replace(/\/+$/, '');
+        
+        console.log('County:', countyName);
+        console.log('API Token (session):', apiTokenFromSession);
+        console.log('API Token (storage):', apiTokenFromStorage);
+        console.log('API Token (effective):', apiToken);
+        console.log('API Base URL:', apiBaseUrl);
+        console.log('Token is empty:', apiToken === '');
+
+        // Persist session token into storage to survive navigation
+        if (apiTokenFromSession && typeof localStorage !== 'undefined') {
+            try { localStorage.setItem('api_token', apiTokenFromSession); } catch (e) {}
+        }
         
         const alphabetGrid = document.getElementById('alphabet-grid');
         const citiesSection = document.getElementById('cities-section');
@@ -80,14 +96,13 @@
             citiesErrorEl.style.display = 'none';
             citiesListEl.innerHTML = '';
 
-            fetch(`http://127.0.0.1:8000/api/county/${countyName}/${letter}`, {
+            fetch(`${apiBase}/county/${encodeURIComponent(countyName)}/${letter}`, {
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': 'Bearer ' + apiToken,
                     'Accept': 'application/json'
-                },
-                credentials: 'same-origin'
+                }
             })
             .then(response => {
                 if (!response.ok) throw new Error('Network response was not ok: ' + response.status);
@@ -138,16 +153,53 @@
             });
         }
 
-        exportPdfBtn.addEventListener('click', function() {
-            if (currentLetter) {
-                window.location.href = `http://127.0.0.1:8000/api/county/${encodeURIComponent(countyName)}/${currentLetter}/export/pdf`;
+        async function downloadWithAuth(url, fallbackFilename) {
+            try {
+                const res = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': 'Bearer ' + apiToken,
+                        'Accept': '*/*'
+                    }
+                });
+                if (!res.ok) throw new Error('Download failed: ' + res.status);
+
+                const blob = await res.blob();
+                let filename = fallbackFilename;
+                const cd = res.headers.get('Content-Disposition');
+                if (cd) {
+                    const match = /filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i.exec(cd);
+                    if (match) {
+                        filename = decodeURIComponent(match[1] || match[2] || fallbackFilename);
+                    }
+                }
+
+                const urlObj = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = urlObj;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(urlObj);
+            } catch (e) {
+                console.error('Export error:', e);
+                alert('Export failed. See console for details.');
             }
+        }
+
+        exportPdfBtn.addEventListener('click', function() {
+            if (!currentLetter) return;
+            const url = `${apiBase}/county/${encodeURIComponent(countyName)}/${currentLetter}/export/pdf`;
+            const name = `cities_${countyName}_${currentLetter}.pdf`;
+            downloadWithAuth(url, name);
         });
 
         exportCsvBtn.addEventListener('click', function() {
-            if (currentLetter) {
-                window.location.href = `http://127.0.0.1:8000/api/county/${encodeURIComponent(countyName)}/${currentLetter}/export/csv`;
-            }
+            if (!currentLetter) return;
+            const url = `${apiBase}/county/${encodeURIComponent(countyName)}/${currentLetter}/export/csv`;
+            const name = `cities_${countyName}_${currentLetter}.csv`;
+            downloadWithAuth(url, name);
         });
     });
 </script>
